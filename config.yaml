@@ -1,0 +1,107 @@
+# =============================================================================
+# Hermes Agent Configuration — NexFlow Deployment
+# =============================================================================
+# Docker backend ensures all code execution is sandboxed.
+# The host filesystem (including NexFlow repos) is never exposed.
+# =============================================================================
+
+# --- Terminal Backend (Docker isolation) ---
+terminal:
+  backend: docker
+  docker_image: python:3.11-slim
+  container_cpu: 2
+  container_memory: 4096        # MB
+  container_disk: 51200          # MB (~50 GB)
+  container_persistent: true     # Preserve state between sessions
+
+# --- LLM Provider ---
+llm:
+  provider: Openrouter
+  # Model selection — OpenRouter model ID (must be fully qualified)
+  default_model: nousresearch/hermes-4-70b
+  # Temperature for general reasoning; lower = more deterministic
+  temperature: 0.3
+  # Max tokens per response
+  max_tokens: 4096
+
+# --- Memory ---
+memory:
+  # FTS5 full-text search for persistent memory
+  backend: sqlite
+  db_path: ~/.hermes/memory/hermes.db
+  # LLM summarization compresses old memories to save context
+  summarization: true
+  summary_threshold: 50  # Summarize after 50 memory entries
+
+# --- Messaging Gateway (Telegram) ---
+messaging:
+  gateway: telegram
+  # Telegram bot token is read from TELEGRAM_BOT_TOKEN env var
+  # Only allow messages from the owner — NEVER set allow_all_users
+  allowed_users_env: TELEGRAM_ALLOWED_USERS
+
+# --- MCP Servers ---
+mcp:
+  servers:
+    # Base chain intelligence — wallet monitoring, pool events, trends
+    - name: base-chain
+      command: python3
+      args: ["-m", "mcp_base_chain.server"]
+      env:
+        ALCHEMY_API_KEY: ${ALCHEMY_API_KEY}
+        BITQUERY_API_KEY: ${BITQUERY_API_KEY}
+
+    # NexFlow API integration — Pulse CAAS, SMF, agent stats
+    - name: nexflow
+      command: python3
+      args: ["-m", "mcp_nexflow.server"]
+      env:
+        NEXFLOW_API_KEY: ${NEXFLOW_API_KEY}
+        NEXFLOW_BASE_URL: ${NEXFLOW_BASE_URL}
+
+    # Blockscout adapter — token transfers, FIFO metrics, briefings (Base chain)
+    - name: basescan
+      command: node
+      args: ["mcp-basescan/dist/server.js"]
+      env:
+        BLOCKSCOUT_BASE_URL: "https://base.blockscout.com"
+        PORT: "3100"
+
+    # NXFX01 Launch Intelligence — launch scoring, wallet profiling, policy
+    - name: nxfx01
+      command: python3
+      args: ["-m", "src.server"]
+      cwd: mcp-nxfx01
+      env:
+        NXFX01_API_URL: "http://localhost:8100"
+        NXFX01_API_KEY: ${NXFX01_API_KEY}
+
+# --- Cron Scheduling ---
+cron:
+  enabled: true
+  config_path: ~/.hermes/cron-jobs.yaml
+
+# --- Skills ---
+skills:
+  directory: ~/.hermes/skills/
+  # Hermes can create new skills from experience
+  auto_create: true
+  # Review new skills before persisting (safety)
+  require_review: false
+
+# --- Logging ---
+logging:
+  level: INFO
+  directory: ~/.hermes/logs/
+  # Rotate logs daily, keep 30 days
+  rotation: daily
+  retention_days: 30
+
+# --- Safety Constraints ---
+safety:
+  # Human approval required for financial transactions over this USD amount
+  financial_approval_threshold: 50
+  # Chain monitoring is read-only until manually unlocked
+  chain_write_enabled: false
+  # Max concurrent subagents
+  max_subagents: 5

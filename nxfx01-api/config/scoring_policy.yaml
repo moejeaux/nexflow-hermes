@@ -1,0 +1,481 @@
+# NXFX01 Scoring Policy — v2.1
+# This file defines tunable weights, thresholds, and rules for the launch scoring pipeline.
+# NXFX01's self-learning loop proposes changes to these values via policy_suggestions.
+# Human approval required before any change is applied.
+#
+# v2.0 changes:
+#   - Added 7 sub-scores (SmartMoneyAlignment, WhaleBehavior, GraphRisk, RugRisk,
+#     LiquidityQuality, SocialQuality, DataConfidence)
+#   - Strict missing-data policy — missing data lowers confidence, never neutral
+#   - Hard liquidity/volume/spread gating for FAST
+#   - CEX-funded wallet labeling
+#   - Social scan integration
+#   - Sell/de-risk trigger framework
+#   - Graph risk and rug heuristics
+#
+# v2.1 changes:
+#   - Mempool Features layer — pre-block signals feeding SM/Whale scorers + DeRisk
+#   - Major Interest detection — first-class composite flag for genuine interest
+#   - Enhanced SM cohort metrics (cluster diversity, pending conviction, net positions)
+#   - Enhanced Whale metrics (z-score, pending bias)
+#   - Mempool-based de-risk triggers (pending smart/whale sells, anomaly density)
+#   - Strict missing-data escalation: mempool as new feature group
+#   - major_interest_flag as prerequisite for aggressive FAST sizing
+
+version: "v2.1"
+
+# ============================================================
+# Stage 1 — Initial Safety Score Weights
+# ============================================================
+# These sum to 1.0. Weights for overall_safety_initial calculation.
+# Stage 1 uses only contract + deployer + funding (available in seconds).
+initial_weights:
+  contract_safety: 0.30
+  deployer_reputation: 0.25
+  funding_risk: 0.20
+  # Fingerprint score folds into deployer_reputation, not a separate weight.
+  # Note: rug_risk_initial is derived from contract+deployer, not weighted separately.
+
+# ============================================================
+# Stage 2 — Final Safety Score Weights (v2 sub-scores)
+# ============================================================
+# All dimensions. Must sum to 1.0.
+# v2 replaces raw smart_money_participation/whale_participation with aligned sub-scores.
+final_weights:
+  contract_safety: 0.12
+  deployer_reputation: 0.10
+  funding_risk: 0.08
+  smart_money_alignment: 0.15       # was: smart_money_participation (0.10)
+  whale_behavior: 0.08              # was: whale_participation (0.07)
+  graph_risk: 0.10                  # NEW — inverted: high = safe
+  rug_risk: 0.15                    # NEW — inverted: high = safe
+  liquidity_quality: 0.12           # was: liquidity_stability (0.13)
+  social_quality: 0.05              # NEW
+  holder_distribution: 0.05         # downweighted (was 0.15); folded into graph/rug
+
+# ============================================================
+# Sub-Score Definitions
+# ============================================================
+# Each sub-score is 0-100. For risk scores (graph_risk, rug_risk),
+# the value stored in DB is the RAW risk (high = bad).
+# In the weighted formula we use (100 - raw_risk) so higher = safer.
+
+sub_scores:
+  # -- SmartMoneyAlignmentScore --
+  smart_money_alignment:
+    description: "Measures quality and conviction of smart-money presence in founding cohort"
+    founding_cohort_window_minutes: 10       # first N minutes = founding cohort
+    founding_cohort_max_buyers: 100          # cap at first 100 buyers
+    min_smart_money_for_signal: 2            # need ≥2 TIER_2/alpha to count
+    weights:
+      smart_money_share: 0.20               # fraction of cohort that is smart money
+      accumulation_ratio_30m: 0.20           # fraction still holding/adding at T+30m
+      median_hold_duration_factor: 0.15      # longer hold = better, capped at 120 min
+      cohort_exit_penalty: 0.15              # penalty when sm_cohort_exit_pct > threshold
+      alpha_cohort_bonus: 0.08               # bonus when alpha-flagged wallets present
+      sm_diversity: 0.10                     # v2.1: distinct clusters (anti-single-entity)
+      mempool_pending_conviction: 0.12       # v2.1: pre-block buy/sell signal from mempool
+    thresholds:
+      cohort_exit_soft_derisk: 0.40          # >40% SM exited → soft de-risk
+      cohort_exit_hard_exit: 0.70            # >70% SM exited → hard exit
+      accumulation_ratio_strong: 0.60        # >60% still accumulating = strong signal
+      pending_sell_cap_exit_pct: 0.30        # v2.1: if pending sell + exits > this → cap score
+
+  # -- WhaleBehaviorScore --
+  whale_behavior:
+    description: "Captures what whales are doing, not just that they exist"
+    rolling_window_minutes: 60
+    weights:
+      net_flow_direction: 0.25               # positive=accumulating, negative=distributing
+      accumulation_trend: 0.25               # slope of net position
+      buys_on_dips_ratio: 0.20               # fraction of buys near local lows
+      sells_in_rips_ratio: 0.20              # fraction of sells near local highs (penalizes)
+      mempool_pending_bias: 0.10             # v2.1: pre-block whale buy/sell bias
+    thresholds:
+      distribution_flip_soft_derisk: -0.30   # net flow z-score < -0.3 → soft de-risk
+      distribution_flip_hard_exit: -0.70     # severe distribution → hard exit
+      pending_sell_z_hard_cap: -0.50         # v2.1: strong pending sell + negative z → cap 25
+
+  # -- GraphRiskScore --
+  graph_risk:
+    description: "Detects manipulative transfer patterns in early token graph"
+    analysis_window_minutes: 30
+    metrics:
+      degree_centralization:
+        description: "Star-likeness: volume through a small core of nodes"
+        high_risk_threshold: 0.70            # >70% volume through <5 addresses
+        weight: 0.35
+      loop_fraction:
+        description: "Share of volume in self-trading / short loops"
+        high_risk_threshold: 0.30            # >30% of volume in loops
+        weight: 0.35
+      lp_owner_concentration:
+        description: "Share of LP controlled by deployer/insider addresses"
+        high_risk_threshold: 0.80            # >80% LP from insiders
+        weight: 0.30
+    hard_block_combo:
+      # If ALL of these are true → hard BLOCK regardless of score
+      centralization_above: 0.70
+      loop_fraction_above: 0.25
+      lp_concentration_above: 0.80
+
+  # -- RugRiskScore --
+  rug_risk:
+    description: "Composite rug/scam risk from code, graph, and behavioral signals"
+    components:
+      code_risk_weight: 0.35                 # from contract_safety inversion + extra heuristics
+      graph_risk_weight: 0.25                # from GraphRiskScore
+      behavioral_risk_weight: 0.25           # tax changes, deployer dumps, abandonment
+      funding_risk_weight: 0.15              # from funding analysis
+    hard_block_patterns:                      # any one → immediate BLOCK
+      - "confirmed_honeypot"
+      - "mint_authority_active"
+      - "selfdestruct_detected"
+      - "known_rugger"
+      - "deployer_lp_drain_gt_50pct"
+      - "stealth_tax_increase"
+    behavioral_indicators:
+      tax_hike_threshold: 0.10               # >10% tax change post-launch → flag
+      deployer_dump_threshold: 0.30          # deployer sells >30% of supply → flag
+      volume_collapse_threshold: 0.05        # volume < 5% of peak within 2h → abandonment risk
+      abandonment_window_hours: 4            # check volume collapse over this window
+
+  # -- LiquidityQualityScore --
+  liquidity_quality:
+    description: "Measures tradability and LP health"
+    # HARD GATES — tokens below these thresholds can NEVER be FAST
+    hard_gates:
+      min_lp_usd: 5000                      # minimum LP in USD
+      min_volume_1h_usd: 1000               # minimum 1h rolling volume
+      max_effective_spread_bp: 500           # max 5% effective spread
+    scoring:
+      lp_usd_tiers:
+        excellent: 100000                    # > $100k → max LP score
+        good: 50000
+        adequate: 10000
+        minimum: 5000                        # below = zero LP subscore
+      volume_tiers:
+        excellent: 50000
+        good: 10000
+        adequate: 2000
+        minimum: 1000
+      spread_tiers:                          # lower is better (basis points)
+        excellent: 50
+        good: 100
+        adequate: 200
+        maximum: 500
+    weights:
+      lp_size: 0.40
+      volume: 0.30
+      spread: 0.30
+
+  # -- SocialQualityScore --
+  social_quality:
+    description: "X/Twitter sentiment and legitimacy signals"
+    scan_window_hours: 24
+    weights:
+      mentions_from_trusted: 0.35            # credible account mentions
+      sentiment_score: 0.25                  # normalized sentiment
+      negative_reports_penalty: 0.25         # scam/rug calls
+      creator_presence: 0.15                 # deployer's social footprint
+    thresholds:
+      min_trusted_mentions_for_boost: 2      # need ≥2 trusted mentions to boost
+      negative_reports_hard_flag: 3          # ≥3 credible scam reports → rug risk bump
+      shill_bot_penalty_threshold: 20        # >20 mentions from low-cred/new accounts → penalty
+
+  # -- DataConfidenceScore --
+  data_confidence:
+    description: "Measures data completeness — missing data = lower confidence = lower aggressiveness"
+    groups:
+      contract: { critical: true, weight: 0.18 }
+      deployer: { critical: true, weight: 0.13 }
+      funding: { critical: false, weight: 0.09 }
+      smart_money: { critical: false, weight: 0.13 }
+      whale: { critical: false, weight: 0.05 }
+      graph: { critical: false, weight: 0.09 }
+      liquidity: { critical: true, weight: 0.13 }
+      social: { critical: false, weight: 0.09 }
+      mempool: { critical: false, weight: 0.11 }   # v2.1: pre-block signals
+    rules:
+      # If ANY critical group has zero data → cap launch_score at 40, no FAST
+      critical_missing_max_score: 40
+      # Each missing non-critical group applies this multiplicative penalty
+      missing_group_penalty_pct: 8           # 8% penalty per missing group
+      # Minimum data confidence for FAST classification
+      min_confidence_for_fast: 60
+
+# ============================================================
+# Mempool Features (v2.1)
+# ============================================================
+mempool_features:
+  description: "Pre-block signal layer — pending tx analysis for early conviction / risk"
+  watcher:
+    snapshot_window_seconds: 15          # rolling window for aggregation
+    tiny_swap_threshold_usd: 50          # swaps below this → tiny/wash
+    fee_urgency:
+      moderate_multiplier: 1.3           # priority fee ≥ 1.3× median → moderate urgency
+      high_multiplier: 2.0              # priority fee ≥ 2.0× median → high urgency
+    strong_signal:
+      min_sm_pending_buy_usd: 500        # strong SM conviction requires ≥ $500 pending
+      min_whale_pending_buy_usd: 2000    # strong whale conviction requires ≥ $2000 pending
+      max_tiny_swap_density: 0.50        # above this density → anomaly flag
+  scoring:
+    pending_conviction_range: [-1.0, 1.0]   # normalized: -1 = all sell, +1 = all buy
+    pending_bias_range: [-1.0, 1.0]
+
+# ============================================================
+# Major Interest (v2.1)
+# ============================================================
+major_interest:
+  description: "First-class composite flag: genuine institutional / smart interest vs noise"
+  # All prerequisite gates must pass BEFORE evaluating positive signals.
+  prerequisite_gates:
+    hard_gates_passed: true              # FAST hard gates must be green
+    no_critical_missing: true            # no critical data groups missing
+  # Risk ceilings — if any exceeded, major_interest = false
+  risk_gates:
+    max_rug_risk: 35
+    max_graph_risk: 45
+  # Positive signal floors — all must be met
+  signal_gates:
+    min_smart_money_score: 60
+    min_whale_behavior_score: 55
+    min_liquidity_quality_score: 60
+    min_data_confidence_score: 70
+  # Mempool quality gate
+  mempool_gate:
+    max_tiny_swap_density: 0.50
+  # Mempool sell veto — if pending sell pressure exceeds both, major_interest = false
+  mempool_sell_veto:
+    sm_pending_conviction_below: -0.5
+    whale_pending_bias_below: -0.5
+  # How major_interest_score (0-100) is weighted from sub-scores
+  score_weights:
+    smart_money_alignment: 0.30
+    whale_behavior: 0.20
+    liquidity_quality: 0.20
+    data_confidence: 0.15
+    social_quality: 0.10
+    mempool_quality: 0.05                # inverse of tiny_swap_density, capped
+  # Minimum score for the flag to be true (after all gates pass)
+  min_score_for_flag: 60
+
+# ============================================================
+# Mode Thresholds
+# ============================================================
+thresholds:
+  # overall_safety score → action mode
+  fast_min: 70          # >= 70 → FAST
+  block_max: 30         # < 30  → BLOCK
+  # Between 30 and 70 → WAIT
+
+  # Per-regime adjustments (added to fast_min threshold)
+  regime_adjustments:
+    HOT: 0              # keep normal threshold in hot markets
+    NORMAL: 0
+    COLD: 10            # raise to 80 in cold markets — be more selective
+
+  # v2 FAST hard gates — ALL must pass or FAST is impossible
+  fast_hard_gates:
+    min_lp_usd: 5000
+    min_volume_1h_usd: 1000
+    max_effective_spread_bp: 500
+    max_rug_risk_score: 45           # raw rug risk must be below this
+    min_data_confidence: 60          # need 60%+ data completeness
+    max_graph_risk_score: 60         # raw graph risk below this
+
+# ============================================================
+# Critical Red Flags — Auto-BLOCK
+# ============================================================
+# If any of these flags appear in notes.contract_red_flags or
+# notes.deployer_red_flags, the launch is BLOCK regardless of scores.
+critical_red_flags:
+  - confirmed_honeypot
+  - known_rugger
+  - mixer_funded_deployer
+  - selfdestruct_detected
+  - mint_authority_active      # can mint unlimited tokens
+  - blacklist_function         # can freeze holders
+  - not_in_dex                 # GoPlus says token is not in any DEX — junk/dead
+  # v2 additions
+  - deployer_lp_drain_gt_50pct    # deployer pulled >50% LP
+  - stealth_tax_increase          # post-launch tax hike > threshold
+  - graph_hard_block              # graph risk hard block combo triggered
+
+# ============================================================
+# Launchpad Trust Modifiers
+# ============================================================
+# Bonus added to deployer_reputation when a token is deployed via a
+# known launchpad. Deployer rep is clamped to [0, 95] after applying.
+launchpad_trust_modifiers:
+  NONE: 0
+  LOW: 2
+  MEDIUM: 5
+  HIGH: 10
+
+# Default trust level for launchpad-typed tokens not in any allowlist.
+# Conservative: even unknown launchpads get a small signal.
+launchpad_trust_default: "LOW"
+
+# Known launchpads by factory/deployer address (lowercase).
+# Entries here override launchpad_trust_default.
+launchpad_trust_allowlist:
+  high:
+    # Add verified high-trust launchpad factory addresses here.
+    # Format: "0xaddress": "Launchpad Name"
+    "0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6": "Zora Wow"
+  medium:
+    # Moderate-trust launchpads — less established or less vetted.
+    # "0xaddress": "Launchpad Name"
+
+# ============================================================
+# Deployer Fingerprinting
+# ============================================================
+fingerprint:
+  # If bytecode_hash matches a bad_templates entry, apply this penalty
+  bad_template_penalty: 40        # subtracted from contract_safety
+
+  # Deployer launch velocity thresholds (launches by same deployer/cluster in 24h)
+  velocity_warn: 2                # >= 2 → flag + heavy penalty
+  velocity_block: 3               # >= 3 → auto-BLOCK
+
+  velocity_penalty_per_launch: 15 # per extra launch above 1
+
+# ============================================================
+# Behavior Scoring Parameters
+# ============================================================
+behavior:
+  # Holder distribution thresholds
+  max_top10_holder_share: 0.50    # above 50% → red flag
+  max_single_holder_share: 0.20   # above 20% → red flag
+  min_unique_holders: 20          # below 20 → penalty
+
+  # Liquidity stability (legacy — v2 uses liquidity_quality sub-score)
+  lp_drain_threshold: 0.30       # 30%+ LP removed in 1h → red flag
+  min_liquidity_usd: 5000        # below $5k → penalty
+
+  # Smart money thresholds
+  min_smart_money_buyers: 2      # need ≥2 TIER_2/alpha to count as "smart money present"
+
+# ============================================================
+# CEX Wallet Labeling
+# ============================================================
+cex_labeling:
+  # Number of hops to trace from a wallet back to a CEX hot wallet
+  max_funding_hops: 2
+  # Minimum fraction of inbound value from CEX to flag as CEX-funded
+  min_cex_share_threshold: 0.30
+  # Deployer flagging: CEX-funded deployer + high rug risk → strong avoidance
+  deployer_cex_penalty:
+    # Extra penalty when deployer is CEX-funded AND these risk conditions
+    with_high_rug_risk: 15          # added to rug_risk when deployer is CEX-funded + rug risk > 50
+    with_high_graph_risk: 10        # added when CEX-funded deployer + graph risk > 50
+
+# ============================================================
+# Sell / De-Risk Triggers
+# ============================================================
+derisk:
+  # Each trigger has a condition and severity (SOFT_DERISK or HARD_EXIT)
+  triggers:
+    sm_cohort_exit:
+      description: "Smart-money founding cohort is exiting"
+      soft_threshold: 0.40           # >40% of SM sold >50% of position
+      hard_threshold: 0.70           # >70% of SM sold >50% of position
+    founding_cohort_exit:
+      description: "Founding cohort broadly exiting"
+      soft_threshold: 0.50
+      hard_threshold: 0.80
+    whale_distribution_flip:
+      description: "Whale net flow flips negative + sells in rips"
+      soft_condition: "whale_net_flow_z < -0.3"
+      hard_condition: "whale_net_flow_z < -0.7 AND sells_in_rips_ratio > 0.5"
+    rug_risk_spike:
+      description: "RugRiskScore jumped after contract or LP change"
+      soft_threshold: 55             # rug risk crosses 55
+      hard_threshold: 75             # rug risk crosses 75
+    lp_drain:
+      description: "LP being pulled rapidly"
+      soft_threshold: 0.20           # >20% LP removed in 1h
+      hard_threshold: 0.50           # >50% LP removed
+    volume_collapse:
+      description: "Volume dried up — possible abandonment"
+      soft_threshold: 0.10           # volume < 10% of peak
+      hard_threshold: 0.03           # volume < 3% of peak
+    spread_explosion:
+      description: "Effective spread blew up"
+      soft_threshold_bp: 300         # >3% spread
+      hard_threshold_bp: 1000        # >10% spread
+    graph_risk_spike:
+      description: "Graph manipulation detected post-entry"
+      soft_threshold: 50
+      hard_threshold: 70
+    # v2.1 mempool-based triggers
+    mempool_smart_sell:
+      description: "Strong pending SM sell signal in mempool"
+      soft_condition: "sm_pending_conviction < -0.5"
+      hard_condition: "sm_pending_conviction < -0.5 AND sm_cohort_exit_pct > 0.30"
+    mempool_whale_sell:
+      description: "Strong pending whale sell signal in mempool"
+      soft_condition: "whale_pending_bias < -0.5"
+      hard_condition: "whale_pending_bias < -0.5 AND whale_net_flow_z < -0.50"
+    mempool_anomaly_density:
+      description: "High density of tiny/wash-like pending txs"
+      soft_threshold: 0.50
+      hard_threshold: 0.75
+
+# ============================================================
+# Notable Participants (Who Else Is In)
+# ============================================================
+notable_participants:
+  window_minutes: 5              # look at first 5 minutes of trading
+  min_tier: "TIER_2_SMART_MONEY" # include TIER_1 and TIER_2
+  include_alpha_cohort: true
+
+# ============================================================
+# Regime Detection
+# ============================================================
+regime:
+  hot_volume_change_pct: 50      # +50% volume = HOT
+  cold_volume_change_pct: -30    # -30% volume = COLD
+  lookback_hours: 24
+  top_n_tokens: 10               # compare top 10 Base tokens
+
+# ============================================================
+# Shadow Mode
+# ============================================================
+shadow:
+  enabled: true                  # when true, FAST launches logged but not surfaced
+  min_calibration_days: 14       # recommended shadow period before going live
+
+# ============================================================
+# Self-Learning Guardrails
+# ============================================================
+learning:
+  # What NXFX01 can auto-adjust (no human approval needed)
+  auto_adjustable:
+    - ranking_order              # how launches are sorted in actionable list
+    - commentary_templates       # how explanations are phrased
+    - new_tag_suggestions        # suggest new red_flag tags for review
+    - notable_participants_window # adjust from 5 to 10 min etc.
+    - social_scan_window_hours   # social scan lookback
+    - founding_cohort_window_minutes
+
+  # What requires human approval (NXFX01 can only suggest)
+  human_only:
+    - fast_min                   # BLOCK/FAST thresholds
+    - block_max
+    - critical_red_flags         # adding/removing auto-BLOCK triggers
+    - initial_weights            # score weight changes
+    - final_weights
+    - velocity_block             # deployer velocity auto-BLOCK
+    - regime_adjustments         # per-regime threshold changes
+    - shadow.enabled             # going from shadow → live
+    # v2 additions
+    - fast_hard_gates            # hard gates for FAST classification
+    - derisk.triggers            # sell/de-risk thresholds
+    - sub_scores                 # sub-score weights and thresholds
+    - cex_labeling               # CEX labeling rules
+    - data_confidence.rules      # missing-data policy
+    # v2.1 additions
+    - mempool_features           # mempool watcher config / thresholds
+    - major_interest             # major interest thresholds/weights

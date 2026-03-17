@@ -1,0 +1,18 @@
+[project]
+name = "nxfx-shared"
+version = "0.1.0"
+description = "Shared Pydantic models and JSON contracts for NXFX multi-agent system"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.3.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"

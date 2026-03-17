@@ -1,0 +1,166 @@
+# =============================================================================
+# Hermes Cron Schedule — NexFlow Autonomous Operations
+# =============================================================================
+# Defines the recurring tasks that Hermes executes automatically.
+# Each job maps to one or more skills and MCP tool calls.
+#
+# Schedule format: standard cron (minute hour day month weekday)
+# =============================================================================
+
+jobs:
+  # ---- Revenue Generation ----
+
+  # Job hunting — scan platforms for new opportunities every 15 minutes
+  - name: job_scanner
+    schedule: "*/15 * * * *"
+    task: >
+      Scan job platforms for new opportunities matching NexFlow's capabilities.
+      Use the job_hunter skill scoring criteria. Score and rank all new listings.
+      Auto-apply to opportunities scoring ≥75. Report top opportunities to Telegram.
+      Log all applications via report_agent_stats(agent_id="NXF015").
+
+  # ---- Chain Intelligence ----
+
+  # Base chain monitoring — check for events every 60 seconds
+  - name: chain_monitor
+    schedule: "* * * * *"
+    task: >
+      Monitor Base chain for new pool creation events, whale movements over $50k,
+      and volume anomalies. Use monitor_new_pools(), detect_whale_movements(50000),
+      and check volume for tracked tokens. Log all patterns using the chain_watcher
+      skill format. Alert on Telegram for high-confidence signals (≥70).
+
+  # Whale wallet tracker — check tracked wallets every 5 minutes
+  - name: whale_tracker
+    schedule: "*/5 * * * *"
+    task: >
+      Check all tracked whale wallets for new transactions using watch_wallet()
+      and get_wallet_history(). Cross-reference with known patterns from the
+      chain_watcher skill. Update whale behavior profiles. If a whale makes
+      a significant move into a new token, run analyze_token_contract() on it
+      and score using the anti-rug checklist.
+
+  # Trending token analysis — every 30 minutes
+  - name: trend_analyzer
+    schedule: "*/30 * * * *"
+    task: >
+      Run get_trending_tokens("1h") and compare with previous trending data.
+      For any token newly entering the top 20, run detect_volume_anomalies()
+      and analyze_token_contract(). If a token passes anti-rug checks and
+      has anomaly level MODERATE or higher, queue it for signal publishing.
+
+  # ---- Signal Publishing ----
+
+  # Signal publisher — check for publishable signals every 10 minutes
+  - name: signal_publisher
+    schedule: "*/10 * * * *"
+    task: >
+      Review queued signals from chain_monitor and trend_analyzer. Validate
+      each signal against the signal_publisher skill criteria. For signals
+      with confidence ≥50, package and publish via x402 using the NexFlow
+      SMF tools. Log revenue for each sale via log_revenue(agent_id="NXF014").
+      Track signal outcomes at 1h intervals.
+
+  # ---- Reporting & Learning ----
+
+  # ---- NXFX01 Launch Intelligence Pipeline ----
+
+  # Launch scanner — poll Blockscout for new pool creation events
+  - name: nxfx01_launch_scanner
+    schedule: "*/3 * * * *"
+    task: >
+      Run the NXFX01 launch scanner to detect new Base token launches.
+      Scans Blockscout for PoolCreated events, inserts bare launch rows,
+      then triggers contract scanning and deployer profiling for pending
+      launches. Uses the nxfx01-api workers: launch_scanner, contract_scanner,
+      deployer_profiler, and initial_scorer in sequence.
+
+  # Behavior updater — analyze holder/liquidity/wallet data for recent launches
+  - name: nxfx01_behavior_updater
+    schedule: "*/5 * * * *"
+    task: >
+      Run the NXFX01 behavior updater for launches that have initial scores
+      but no behavior data yet (launched >5 min ago). Analyzes holder
+      distribution, liquidity stability, smart money participation, and
+      notable participants. Then runs the final safety scorer to compute
+      the overall_safety_final and action_final. Uses: behavior_updater,
+      wallet_profiler, final_scorer.
+
+  # Outcome tracker — record realized PnL and rug detection
+  - name: nxfx01_outcome_tracker
+    schedule: "0 * * * *"
+    task: >
+      Run the NXFX01 outcome tracker for launches older than 1 hour.
+      Checks for rug indicators (LP drain, price collapse) and records
+      final_status. Re-checks active outcomes every 6 hours for updated
+      PnL metrics.
+
+  # Regime detection — update market regime classification
+  - name: nxfx01_regime_check
+    schedule: "0 */6 * * *"
+    task: >
+      Run NXFX01 regime detection: count 24h launches and rug rates,
+      classify market as HOT/NORMAL/COLD, update config and log.
+      Regime adjusts FAST threshold (COLD +10 requiring higher safety).
+
+  # Daily learner — analyze outcomes and compute accuracy metrics
+  - name: nxfx01_daily_learner
+    schedule: "0 1 * * *"
+    task: >
+      Run the NXFX01 daily learning loop per nxfx01_learner skill:
+      1. Pull 7-day outcomes via get_past_launch_outcomes(since_days=7).
+      2. Classify accuracy: true/false positives and negatives.
+      3. Compute rug_miss_rate, opportunity_miss_rate, calibration_error.
+      4. Log metrics via report_agent_stats(agent_id="NXFX01").
+      5. Alert on Telegram if rug_miss_rate exceeds 5%.
+
+  # Weekly learner — deeper analysis and policy proposals
+  - name: nxfx01_weekly_learner
+    schedule: "0 2 * * 0"
+    task: >
+      Run the NXFX01 weekly policy review per nxfx01_learner skill:
+      1. Pull 30-day outcomes for larger sample.
+      2. Analyze score distributions and dimension correlations.
+      3. Check if shadow mode graduation criteria are met (14 days,
+         50+ launches, <5% rug miss rate, <30s latency).
+      4. If warranted, propose policy adjustments via
+         update_launch_policy_suggestion with evidence snapshot.
+      Constraints: min 50 launches for weight changes, max ±0.03 per cycle.
+
+  # ---- Reporting & Learning (General) ----
+
+  # Hourly summary — compile recent activity
+  - name: hourly_summary
+    schedule: "0 * * * *"
+    task: >
+      Compile the last hour's observations: new signals detected, jobs applied to,
+      whale movements, and any anomalies. Include moderate-confidence signals
+      (50-69) that weren't alerted individually. Send concise summary to Telegram.
+
+  # Daily learning summary — midnight UTC
+  - name: daily_learnings
+    schedule: "0 0 * * *"
+    task: >
+      End-of-day analysis:
+      1. Compile today's observations and outcomes.
+      2. Update skill documents with new patterns learned.
+      3. Calculate daily P&L: revenue from jobs + signal sales - API costs.
+      4. Score signal accuracy for signals published >24h ago.
+      5. Update anti-rug pattern database with new findings.
+      6. Report full daily summary to Telegram with P&L breakdown.
+      Use report_agent_stats() for each active agent.
+
+  # Weekly strategy review — Sunday midnight UTC
+  - name: weekly_review
+    schedule: "0 0 * * 0"
+    task: >
+      Comprehensive weekly analysis:
+      1. Aggregate all agent performance metrics for the week.
+      2. Calculate per-agent ROI (revenue vs API cost).
+      3. Identify top-performing strategies and agents.
+      4. Evaluate agent graduation/demotion per nxfx01_orchestrator criteria.
+      5. Recommend adjustments to: job hunting keywords, chain monitoring
+         parameters, signal pricing, API budget allocation.
+      6. Update NXFX01 orchestration weights based on findings.
+      7. Send comprehensive weekly report to Telegram.
+      8. Archive this week's pattern logs for long-term analysis.

@@ -1,0 +1,21 @@
+{
+  "name": "nexflow-bullmq-scheduler",
+  "version": "1.0.0",
+  "description": "BullMQ-based job scheduler for NexFlow — replaces node-cron",
+  "type": "module",
+  "scripts": {
+    "start": "tsx queue-scheduler.ts",
+    "dev": "tsx watch queue-scheduler.ts"
+  },
+  "dependencies": {
+    "@bull-board/api": "^6.20.5",
+    "@bull-board/fastify": "^6.20.5",
+    "bullmq": "^5.71.0",
+    "fastify": "^5.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,19 @@
+[project]
+name = "nxfx05-risk"
+version = "0.1.0"
+description = "NXFX05 Risk Supervisor & Governance — portfolio-level limits and throttles"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.5.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.3.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
