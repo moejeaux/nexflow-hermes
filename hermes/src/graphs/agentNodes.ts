@@ -40,30 +40,19 @@ Response format:
 - Flag any concerns or red flags clearly`;
 
 /**
- * Creates a configured ChatOpenAI model instance for the planner
- * Uses OpenRouter by default with Nous Hermes 2 model
+ * Creates a configured ChatOpenAI model instance
+ * Uses TOOLS_MODEL for policies that need tools, HERMES_MODEL for read-only
  */
-function createPlannerModel(): ChatOpenAI {
+function createChatModel(policyId?: string): ChatOpenAI {
+  const useToolsModel = policyId && policyId !== 'read-only';
+
   return new ChatOpenAI({
-    model: process.env.HERMES_MODEL ?? "nousresearch/nous-hermes-2",
+    model: useToolsModel
+      ? (process.env.TOOLS_MODEL ?? "openai/gpt-4o-mini")
+      : (process.env.HERMES_MODEL ?? "nousresearch/nous-hermes-2"),
     temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.2"),
     maxTokens: parseInt(process.env.LLM_MAX_TOKENS || "4096"),
     verbose: false,
-    configuration: {
-      baseURL: "https://openrouter.ai/api/v1",
-      apiKey: process.env.OPENROUTER_API_KEY,
-    },
-  });
-}
-
-/**
- * Creates a separate model for tool execution
- * Uses OpenRouter with GPT-4o Mini for fast tool calls
- */
-function createToolsModel(): ChatOpenAI {
-  return new ChatOpenAI({
-    model: process.env.TOOLS_MODEL ?? "openai/gpt-4o-mini",
-    temperature: 0,
     configuration: {
       baseURL: "https://openrouter.ai/api/v1",
       apiKey: process.env.OPENROUTER_API_KEY,
@@ -122,14 +111,8 @@ export async function plannerNode(
     ? coreTools.filter((t) => policy.allowedTools.includes(t.name))
     : coreTools;
   
-  // Create planner model for reasoning (Hermes 4)
-  const plannerModel = createPlannerModel();
-  
-  // Create tools model for tool execution (GPT-4o Mini)
-  const toolsModel = createToolsModel();
-  
-  // Bind tools to the tools model
-  const model = toolsModel.bindTools(availableTools, {
+  // Create model - uses TOOLS_MODEL for policies with tools, HERMES_MODEL for read-only
+  const model = createChatModel(policyId).bindTools(availableTools, {
     tool_choice: 'auto',
   });
   
