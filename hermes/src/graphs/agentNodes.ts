@@ -229,25 +229,24 @@ export async function reviewerNode(
 export function routerNode(
   state: typeof HermesStateAnnotation.State
 ): 'tools' | '__end__' {
-  // If using read-only policy, always end after first response
   const policyId = state.policyId || 'trading-default';
+
+  // For read-only policy, always end immediately (no tools)
   if (policyId === 'read-only') {
     return '__end__';
   }
 
   const review = state.reviewResult;
-  
+
   if (review?.approved) {
     return '__end__';
   }
-  
-  // Check for tool calls in the last message
+
   const lastMessage = [...state.messages].reverse()[0];
   if (lastMessage?.role === 'assistant' && lastMessage?.toolCallId) {
     return 'tools';
   }
-  
-  // Default to end if no clear direction
+
   return '__end__';
 }
 
