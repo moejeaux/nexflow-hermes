@@ -229,6 +229,12 @@ export async function reviewerNode(
 export function routerNode(
   state: typeof HermesStateAnnotation.State
 ): 'tools' | '__end__' {
+  // If using read-only policy, always end after first response
+  const policyId = state.policyId || 'trading-default';
+  if (policyId === 'read-only') {
+    return '__end__';
+  }
+
   const review = state.reviewResult;
   
   if (review?.approved) {
