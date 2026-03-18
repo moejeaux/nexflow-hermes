@@ -48,8 +48,8 @@ function createChatModel(policyId?: string): ChatOpenAI {
 
   return new ChatOpenAI({
     model: useToolsModel
-      ? (process.env.TOOLS_MODEL ?? "openai/gpt-4o-mini")
-      : (process.env.HERMES_MODEL ?? "nousresearch/nous-hermes-2"),
+      ? (process.env.TOOLS_MODEL ?? "openai/gpt-5-mini")
+      : (process.env.HERMES_MODEL ?? "nousresearch/hermes-4-70b"),
     temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.2"),
     maxTokens: parseInt(process.env.LLM_MAX_TOKENS || "4096"),
     verbose: false,
