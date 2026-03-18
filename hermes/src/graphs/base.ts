@@ -38,23 +38,30 @@ export function buildHermesGraph(policyId: string = 'trading-default'): any {
   
   console.log(`Building Hermes graph with policy: ${policyId}`);
   console.log(`Allowed tools: ${allowedTools.map((t: any) => t.name).join(', ')}`);
-  
-  // Use HermesStateAnnotation for proper typing
+
   const workflow: any = new StateGraph(HermesStateAnnotation);
-  
+
   workflow.addNode('planner', plannerNode);
-  workflow.addNode('tools', toolNode);
-  
-  workflow.addEdge(START, 'planner');
-  
-  workflow.addConditionalEdges(
-    'planner',
-    shouldCallTools,
-    ['tools', END]
-  );
-  
-  workflow.addEdge('tools', 'planner');
-  
+
+  // Only add tools node and tool edges if there are any allowed tools
+  if (allowedTools.length > 0) {
+    workflow.addNode('tools', toolNode);
+
+    workflow.addEdge(START, 'planner');
+
+    workflow.addConditionalEdges(
+      'planner',
+      shouldCallTools,
+      ['tools', END]
+    );
+
+    workflow.addEdge('tools', 'planner');
+  } else {
+    // No tools for this policy: simple planner -> END graph
+    workflow.addEdge(START, 'planner');
+    workflow.addEdge('planner', END);
+  }
+
   return workflow;
 }
 
