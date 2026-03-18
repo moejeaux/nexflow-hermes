@@ -3,7 +3,7 @@
  * Uses LangGraph-style annotations for type-safe state management.
  */
 
-import { Annotation, RootAnnotation } from '@langchain/langgraph';
+import { Annotation } from '@langchain/langgraph';
 
 /**
  * A message in the conversation history.
@@ -110,23 +110,74 @@ export interface HermesState {
 
 /**
  * LangGraph-style annotations for HermesState.
- * This defines the reducer functions for each state field.
+ * Using properly typed reducers for each field.
  */
-export const HermesStateAnnotation: RootAnnotation<HermesState> = Annotation.Root({
+
+// Reducer for messages: append arrays (current.concat(update))
+function messagesReducer(current: HermesMessage[], update: HermesMessage[]): HermesMessage[] {
+  return current.concat(update);
+}
+
+// Reducer for toolResults: shallow-merge objects ({ ...current, ...update })
+function toolResultsReducer(
+  current: Record<string, ToolResult>,
+  update: Record<string, ToolResult>
+): Record<string, ToolResult> {
+  return { ...current, ...update };
+}
+
+// Reducer for iteration: increment (current + update)
+function iterationReducer(current: number, update: number): number {
+  return current + update;
+}
+
+// Reducer for plannedTools: append arrays
+function plannedToolsReducer(current: PlannedToolCall[], update: PlannedToolCall[]): PlannedToolCall[] {
+  return current.concat(update);
+}
+
+// Reducer for errors: append arrays
+function errorsReducer(current: string[], update: string[]): string[] {
+  return current.concat(update);
+}
+
+// Reducer for metadata: shallow-merge
+function metadataReducer(
+  current: Record<string, unknown>,
+  update: Record<string, unknown>
+): Record<string, unknown> {
+  return { ...current, ...update };
+}
+
+// Reducer for tokensUsed: increment
+function tokensUsedReducer(current: number, update: number): number {
+  return current + update;
+}
+
+export const HermesStateAnnotation = Annotation.Root({
   /** Input: user request (not reduced, set once at start) */
   userRequest: Annotation<string>,
 
   /** Conversation messages - append new messages */
-  messages: Annotation<HermesMessage[]>((x, y) => x.concat(y)),
+  messages: Annotation<HermesMessage[]>({
+    reducer: messagesReducer,
+    default: () => [],
+  }),
 
   /** Current policy ID (replace on update) */
   policyId: Annotation<string>,
 
   /** Planned tool calls - append new plans */
-  plannedTools: Annotation<PlannedToolCall[]>((x, y) => x.concat(y)),
+  plannedTools: Annotation<PlannedToolCall[]>({
+    reducer: plannedToolsReducer,
+    default: () => [],
+  }),
 
   /** Tool results - merge new results into existing */
-  toolResults: Annotation<Record<string, ToolResult>>((x, y) => ({ ...x, ...y })),
+  toolResults: Annotation<Record<string, ToolResult>>({
+    reducer: toolResultsReducer,
+    default: () => ({}),
+  }),
 
   /** Review result - replace on update */
   reviewResult: Annotation<ReviewResult | null>,
@@ -134,17 +185,29 @@ export const HermesStateAnnotation: RootAnnotation<HermesState> = Annotation.Roo
   /** Final response - replace on update */
   finalResponse: Annotation<string>,
 
-  /** Iteration counter - increment by 1 */
-  iteration: Annotation<number>((x, y) => x + y),
+  /** Iteration counter - increment by update value */
+  iteration: Annotation<number>({
+    reducer: iterationReducer,
+    default: () => 0,
+  }),
 
   /** Tokens used - accumulate */
-  tokensUsed: Annotation<number>((x, y) => x + y),
+  tokensUsed: Annotation<number>({
+    reducer: tokensUsedReducer,
+    default: () => 0,
+  }),
 
   /** Errors - append new errors */
-  errors: Annotation<string[]>((x, y) => x.concat(y)),
+  errors: Annotation<string[]>({
+    reducer: errorsReducer,
+    default: () => [],
+  }),
 
   /** Metadata - merge */
-  metadata: Annotation<Record<string, unknown>>((x, y) => ({ ...x, ...y })),
+  metadata: Annotation<Record<string, unknown>>({
+    reducer: metadataReducer,
+    default: () => ({}),
+  }),
 });
 
 /**

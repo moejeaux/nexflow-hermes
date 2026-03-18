@@ -1,9 +1,9 @@
+import { Tool } from '@langchain/core/tools';
+
 /**
  * Policy definitions and registry for Hermes orchestration.
  * Policies define guardrails, allowed tools, and execution limits.
  */
-
-import { Tool } from './tools';
 
 /**
  * A policy defines the constraints for a workflow execution.
@@ -40,7 +40,9 @@ export const POLICY_REGISTRY: Record<string, Policy> = {
   'read-only': {
     id: 'read-only',
     description: 'Read-only policy - data retrieval only, no trading',
-    allowedTools: ['ml_score', 'wallet_score', 'market_data', 'nxfx01_status'],
+    allowedTools: [
+      'wallet_intel_score',
+    ],
     maxSteps: 10,
     maxIterations: 3,
     rateLimitPerMinute: 60,
@@ -59,13 +61,9 @@ export const POLICY_REGISTRY: Record<string, Policy> = {
     id: 'trading-default',
     description: 'Default trading policy - analysis + execution allowed',
     allowedTools: [
-      'ml_score',
-      'wallet_score',
-      'market_data',
       'nxfx01_execute',
-      'nxfx01_status',
-      'wallet_history',
-      'token_analysis',
+      'wallet_intel_score',
+      'ml_review_token',
     ],
     maxSteps: 20,
     maxIterations: 5,
@@ -85,19 +83,15 @@ export const POLICY_REGISTRY: Record<string, Policy> = {
     id: 'trading-conservative',
     description: 'Conservative trading - requires human approval for execution',
     allowedTools: [
-      'ml_score',
-      'wallet_score',
-      'market_data',
       'nxfx01_execute',
-      'nxfx01_status',
-      'wallet_history',
-      'token_analysis',
+      'wallet_intel_score',
+      'ml_review_token',
     ],
     maxSteps: 25,
     maxIterations: 7,
     rateLimitPerMinute: 15,
     allowTrading: true,
-    autoApproveThreshold: undefined, // Always require approval
+    autoApproveThreshold: undefined,
     metadata: {
       riskLevel: 'low',
       requiresHumanApproval: true,
@@ -111,12 +105,8 @@ export const POLICY_REGISTRY: Record<string, Policy> = {
     id: 'research',
     description: 'Research policy - deep analysis, no execution',
     allowedTools: [
-      'ml_score',
-      'wallet_score',
-      'market_data',
-      'wallet_history',
-      'token_analysis',
-      'nxfx01_status',
+      'ml_review_token',
+      'wallet_intel_score',
     ],
     maxSteps: 30,
     maxIterations: 10,
@@ -135,7 +125,7 @@ export const POLICY_REGISTRY: Record<string, Policy> = {
   emergency: {
     id: 'emergency',
     description: 'Emergency policy - minimal operations, halt trading',
-    allowedTools: ['nxfx01_status', 'market_data'],
+    allowedTools: [],
     maxSteps: 5,
     maxIterations: 1,
     rateLimitPerMinute: 5,
@@ -218,7 +208,7 @@ export function getAllowedToolsForPolicy(
   }
 
   const allowedToolNames = new Set(policy.allowedTools);
-  return allTools.filter((tool) => allowedToolNames.has(tool.name));
+  return allTools.filter((tool) => allowedToolNames.has(tool.name as string));
 }
 
 /**
