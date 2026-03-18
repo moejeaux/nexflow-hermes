@@ -5,11 +5,11 @@
  */
 
 import { BaseMessage, HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages';
-import { ChatOpenAI } from '@langchain/openai';
 import { Runnable, RunnableConfig } from '@langchain/core/runnables';
 import { HermesState, HermesMessage, createMessage, HermesStateAnnotation } from '../core/state';
 import { coreTools } from '../core/tools';
 import { getPolicy } from '../core/policies';
+import { getModelForPolicy } from '../core/llm';
 
 /**
  * Hermes system prompt defining the orchestrator's role and behavior
@@ -25,7 +25,6 @@ Your role is to:
 Available tools:
 - nxfx01_execute: Get launch analysis and execute trades for Base tokens
 - wallet_intel_score: Score wallet classification (whale/smart money/retail)
-- ml_review_token: Get ML-based risk assessment and recommendations
 
 Guidelines:
 - Always prioritize capital safety: avoid rugs, honeypots, and structurally bad launches
@@ -40,24 +39,16 @@ Response format:
 - Flag any concerns or red flags clearly`;
 
 /**
- * Creates a configured ChatOpenAI model instance
- * Uses TOOLS_MODEL for policies that need tools, HERMES_MODEL for read-only
+ * Creates a configured ChatOpenAI model instance for the given policy.
+ * Uses getModelForPolicy to select the appropriate model:
+ * - read-only: HERMES_MODEL (Hermes 4)
+ * - tool-using policies: TOOLS_MODEL (Gemini 2.5 Flash)
+ * 
+ * This delegates to call_model() in ../core/llm.ts
  */
-function createChatModel(policyId?: string): ChatOpenAI {
-  const useToolsModel = policyId && policyId !== 'read-only';
-
-  return new ChatOpenAI({
-    model: useToolsModel
-      ? (process.env.TOOLS_MODEL ?? "openai/gpt-5-mini")
-      : (process.env.HERMES_MODEL ?? "nousresearch/hermes-4-70b"),
-    temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.2"),
-    maxTokens: parseInt(process.env.LLM_MAX_TOKENS || "4096"),
-    verbose: false,
-    configuration: {
-      baseURL: "https://openrouter.ai/api/v1",
-      apiKey: process.env.OPENROUTER_API_KEY,
-    },
-  });
+function createChatModel(policyId?: string) {
+  const effectivePolicyId = policyId || 'trading-default';
+  return getModelForPolicy(effectivePolicyId);
 }
 
 /**

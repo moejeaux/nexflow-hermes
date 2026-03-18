@@ -61,7 +61,6 @@ export const POLICY_REGISTRY: Record<string, Policy> = {
     allowedTools: [
       'nxfx01_execute',
       'wallet_intel_score',
-      'ml_review_token',
     ],
     maxSteps: 20,
     maxIterations: 5,
