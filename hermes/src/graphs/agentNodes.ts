@@ -40,14 +40,19 @@ Response format:
 - Flag any concerns or red flags clearly`;
 
 /**
- * Creates a configured ChatOpenAI model instance
+ * Creates a configured ChatOpenAI model instance for the planner
+ * Uses OpenRouter by default with Nous Hermes 2 model
  */
 function createChatModel(): ChatOpenAI {
   return new ChatOpenAI({
-    model: process.env.LLM_MODEL || 'gpt-4o',
-    temperature: parseFloat(process.env.LLM_TEMPERATURE || '0.3'),
-    maxTokens: parseInt(process.env.LLM_MAX_TOKENS || '4096'),
+    model: process.env.HERMES_MODEL ?? "nousresearch/nous-hermes-2",
+    temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.2"),
+    maxTokens: parseInt(process.env.LLM_MAX_TOKENS || "4096"),
     verbose: false,
+    configuration: {
+      baseURL: "https://openrouter.ai/api/v1",
+      apiKey: process.env.OPENROUTER_API_KEY,
+    },
   });
 }
 
