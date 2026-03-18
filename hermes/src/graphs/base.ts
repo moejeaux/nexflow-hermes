@@ -58,7 +58,10 @@ export function buildHermesGraph(policyId: string = 'trading-default'): any {
     workflow.addConditionalEdges(
       'planner',
       shouldCallTools,
-      ['tools', END]
+      {
+        tools: 'tools',
+        end: END,
+      }
     );
 
     workflow.addEdge('tools', 'planner');
