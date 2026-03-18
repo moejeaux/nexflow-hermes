@@ -12,13 +12,11 @@ import axios, { AxiosInstance } from 'axios';
  */
 export interface NXFX01ExecuteParams {
   /** Token address to analyze/trade */
-  tokenAddress: string;
-  /** Action mode: FAST, WAIT, or BLOCK */
-  action: 'FAST' | 'WAIT' | 'BLOCK';
-  /** Position size in USD (optional) */
-  sizeUsd?: number;
-  /** Additional metadata */
-  metadata?: Record<string, unknown>;
+  token_address: string;
+  /** Chain identifier (e.g., "base") */
+  chain: string;
+  /** Timeframe for analysis */
+  timeframe: string;
 }
 
 /**
@@ -48,7 +46,7 @@ export class NXFX01Client {
   private baseUrl: string;
 
   constructor(baseUrl?: string) {
-    this.baseUrl = baseUrl || process.env.NXFX01_URL || 'http://localhost:8000';
+    this.baseUrl = baseUrl || process.env.NXFX01_URL || 'http://localhost:8010';
     this.client = axios.create({
       baseURL: this.baseUrl,
       timeout: 30000,
@@ -60,12 +58,12 @@ export class NXFX01Client {
 
   /**
    * Execute a trading strategy via NXFX01
-   * POST /hermes-gateway/executeStrategy
+   * POST /api/nxfx01/strategy
    */
   async executeStrategy(params: NXFX01ExecuteParams): Promise<NXFX01ExecuteResponse> {
     try {
       const response = await this.client.post<NXFX01ExecuteResponse>(
-        '/hermes-gateway/executeStrategy',
+        '/api/nxfx01/strategy',
         params
       );
       return response.data;

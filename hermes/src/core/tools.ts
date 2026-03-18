@@ -27,7 +27,7 @@ const toolsModel = new ChatOpenAI({
  * NXFX01 Execute Tool
  */
 export const nxfx01Execute = tool(
-  async (input: NXFX01ExecuteParams): Promise<string> => {
+  async (input: { token_address: string; chain: string; timeframe: string }): Promise<string> => {
     try {
       const result = await nxfx01Client.executeStrategy(input);
       return JSON.stringify({
@@ -43,7 +43,7 @@ export const nxfx01Execute = tool(
   },
   {
     name: 'nxfx01_execute',
-    description: 'Execute a trading strategy via NXFX01 launch intelligence. Input: tokenAddress (required), action (FAST|WAIT|BLOCK), sizeUsd (optional), metadata (optional).',
+    description: 'Execute a trading strategy via NXFX01 launch intelligence. Input: token_address (required), chain (required), timeframe (required).',
   }
 );
 
