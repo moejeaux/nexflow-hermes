@@ -40,9 +40,7 @@ export const POLICY_REGISTRY: Record<string, Policy> = {
   'read-only': {
     id: 'read-only',
     description: 'Read-only policy - data retrieval only, no trading',
-    allowedTools: [
-      'wallet_intel_score',
-    ],
+    allowedTools: [],
     maxSteps: 10,
     maxIterations: 3,
     rateLimitPerMinute: 60,
