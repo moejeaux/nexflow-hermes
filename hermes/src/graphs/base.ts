@@ -22,10 +22,16 @@ function getFilteredTools(policy: Policy): any[] {
 function shouldCallTools(state: HermesState): 'tools' | 'end' {
   const messages = state.messages || [];
   const lastMessage = messages[messages.length - 1];
-  
-  if (lastMessage && lastMessage.role === 'assistant' && lastMessage.toolCallId) {
+
+  if (
+    lastMessage &&
+    lastMessage.role === 'assistant' &&
+    typeof (lastMessage as any).toolCallId === 'string' &&
+    (lastMessage as any).toolCallId.length > 0
+  ) {
     return 'tools';
   }
+
   return 'end';
 }
 
