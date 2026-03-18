@@ -5,9 +5,23 @@
 
 import { z } from 'zod';
 import { tool } from '@langchain/core/tools';
+import { ChatOpenAI } from '@langchain/openai';
 import { nxfx01Client, NXFX01ExecuteParams } from '../services/nxfx01-client';
 import { walletIntelClient } from '../services/walletintel-client';
 import { mlClient, TokenFeatures } from '../services/ml-client';
+
+/**
+ * Tools model for tool execution
+ * Uses OpenRouter with TOOLS_MODEL env var
+ */
+const toolsModel = new ChatOpenAI({
+  model: process.env.TOOLS_MODEL ?? "openai/gpt-4o-mini",
+  temperature: 0,
+  configuration: {
+    baseURL: "https://openrouter.ai/api/v1",
+    apiKey: process.env.OPENROUTER_API_KEY,
+  },
+});
 
 /**
  * NXFX01 Execute Tool
