@@ -26,6 +26,8 @@ Usage:
     python hermes_strategy_config.py --disable
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging
