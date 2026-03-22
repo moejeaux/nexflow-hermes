@@ -80,7 +80,7 @@ def select_follow_wallets(
             WHERE p.total_trades >= %s
               AND p.win_rate >= %s
               AND p.realized_pnl_usd >= %s
-              AND (p.perf_tier = ANY(%s) OR p.perf_tier IS NULL)
+              AND (p.perf_tier::text = ANY(%s) OR p.perf_tier IS NULL)
               -- Exclude non-human wallets.
               AND COALESCE(t.is_contract, FALSE) = FALSE
               AND COALESCE(t.is_cex_candidate, FALSE) = FALSE
