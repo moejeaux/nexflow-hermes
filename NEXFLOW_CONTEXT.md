@@ -43,7 +43,7 @@ Two-pass scoring: Initial (T0-10s: contract safety, deployer rep, funding risk) 
 
 Sub-scores: smart_money_alignment, whale_behavior, graph_risk, rug_risk, liquidity_quality, social_quality, data_confidence. Position actions: NO_ENTRY, ENTRY, HOLD, PARTIAL_EXIT, FULL_EXIT.
 
-Shadow mode active: scores computed but no real trades until 14+ days, 50+ launches, <5% rug miss rate.
+LIVE mode: scoring is active, execution enabled. All trades still gated by the 5 executor safety locks and $50 approval threshold.
 
 ## MCP Tools
 
@@ -82,7 +82,7 @@ Targets: 10% weekly revenue growth, >70% signal accuracy, >90% job completion, >
 ## Risk Rules
 
 - $50 approval threshold: transactions >$50 need human Telegram approval
-- Shadow mode active: no real trades until graduation
+- LIVE mode: trades execute when all 5 executor safety locks pass
 - 30-day minimum data before trading considered
 - Max 5 concurrent subagents
 - Never access source code, never expose API keys
