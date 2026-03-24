@@ -73,7 +73,7 @@ mcp:
       args: ["-m", "src.server"]
       cwd: mcp-nxfx01
       env:
-        NXFX01_API_URL: "http://localhost:8100"
+        NXFX01_API_URL: "http://localhost:8101"
         NXFX01_API_KEY: ${NXFX01_API_KEY}
 
 # --- Cron Scheduling ---
@@ -102,6 +102,6 @@ safety:
   # Human approval required for financial transactions over this USD amount
   financial_approval_threshold: 50
   # Chain monitoring is read-only until manually unlocked
-  chain_write_enabled: false
+  chain_write_enabled: true
   # Max concurrent subagents
   max_subagents: 5
