@@ -18,7 +18,7 @@ terminal:
 llm:
   provider: Openrouter
   # Model selection — OpenRouter model ID (must be fully qualified)
-  default_model: nousresearch/hermes-4-70b
+  default_model: nousresearch/hermes-3-llama-3.1-405b
   # Temperature for general reasoning; lower = more deterministic
   temperature: 0.3
   # Max tokens per response
