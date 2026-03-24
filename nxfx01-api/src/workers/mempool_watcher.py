@@ -363,81 +363,90 @@ async def _load_wallet_labels() -> dict[str, tuple[str, str]]:
     return labels
 
 
-async def persist_snapshot(snap: MempoolSnapshot) -> None:
-    """Persist a mempool feature snapshot to DB."""
-    if not snap.launch_id:
-        return
+async def persist_snapshots_batch(snapshots: list[MempoolSnapshot]) -> int:
+    """Persist multiple mempool feature snapshots in a single executemany call."""
+    valid = [s for s in snapshots if s.launch_id]
+    if not valid:
+        return 0
 
-    # Insert snapshot row
-    await db.execute(
-        """
-        INSERT INTO mempool_features (
-            launch_id, token_address, snapshot_at,
-            pending_smart_buy_volume, pending_smart_sell_volume,
-            pending_smart_buy_ratio, pending_smart_sell_ratio,
-            pending_smart_buy_count, pending_smart_sell_count,
-            pending_smart_buy_fee_urgency_max, pending_smart_sell_fee_urgency_max,
-            pending_whale_buy_volume, pending_whale_sell_volume,
-            pending_whale_buy_count, pending_whale_sell_count,
-            tiny_swap_count, total_pending_swap_count,
-            tiny_swap_density, new_addr_tiny_swap_count,
-            has_strong_pending_smart_buy, has_strong_pending_smart_sell,
-            has_strong_pending_whale_buy, has_strong_pending_whale_sell,
-            high_tiny_swap_density,
-            pool_liquidity_usd
-        ) VALUES (
-            $1, $2, $3,
-            $4, $5, $6, $7, $8, $9, $10, $11,
-            $12, $13, $14, $15,
-            $16, $17, $18, $19,
-            $20, $21, $22, $23, $24,
-            $25
+    rows = [
+        (s.launch_id, s.token_address, s.snapshot_at,
+         s.pending_smart_buy_volume, s.pending_smart_sell_volume,
+         s.pending_smart_buy_ratio, s.pending_smart_sell_ratio,
+         s.pending_smart_buy_count, s.pending_smart_sell_count,
+         s.pending_smart_buy_fee_urgency_max, s.pending_smart_sell_fee_urgency_max,
+         s.pending_whale_buy_volume, s.pending_whale_sell_volume,
+         s.pending_whale_buy_count, s.pending_whale_sell_count,
+         s.tiny_swap_count, s.total_pending_swap_count,
+         s.tiny_swap_density, s.new_addr_tiny_swap_count,
+         s.has_strong_pending_smart_buy, s.has_strong_pending_smart_sell,
+         s.has_strong_pending_whale_buy, s.has_strong_pending_whale_sell,
+         s.high_tiny_swap_density,
+         s.pool_liquidity_usd)
+        for s in valid
+    ]
+
+    async with db.connection() as conn:
+        await conn.executemany(
+            """
+            INSERT INTO mempool_features (
+                launch_id, token_address, snapshot_at,
+                pending_smart_buy_volume, pending_smart_sell_volume,
+                pending_smart_buy_ratio, pending_smart_sell_ratio,
+                pending_smart_buy_count, pending_smart_sell_count,
+                pending_smart_buy_fee_urgency_max, pending_smart_sell_fee_urgency_max,
+                pending_whale_buy_volume, pending_whale_sell_volume,
+                pending_whale_buy_count, pending_whale_sell_count,
+                tiny_swap_count, total_pending_swap_count,
+                tiny_swap_density, new_addr_tiny_swap_count,
+                has_strong_pending_smart_buy, has_strong_pending_smart_sell,
+                has_strong_pending_whale_buy, has_strong_pending_whale_sell,
+                high_tiny_swap_density,
+                pool_liquidity_usd
+            ) VALUES (
+                $1, $2, $3,
+                $4, $5, $6, $7, $8, $9, $10, $11,
+                $12, $13, $14, $15,
+                $16, $17, $18, $19,
+                $20, $21, $22, $23, $24,
+                $25
+            )
+            """,
+            rows,
         )
-        """,
-        snap.launch_id, snap.token_address, snap.snapshot_at,
-        snap.pending_smart_buy_volume, snap.pending_smart_sell_volume,
-        snap.pending_smart_buy_ratio, snap.pending_smart_sell_ratio,
-        snap.pending_smart_buy_count, snap.pending_smart_sell_count,
-        snap.pending_smart_buy_fee_urgency_max, snap.pending_smart_sell_fee_urgency_max,
-        snap.pending_whale_buy_volume, snap.pending_whale_sell_volume,
-        snap.pending_whale_buy_count, snap.pending_whale_sell_count,
-        snap.tiny_swap_count, snap.total_pending_swap_count,
-        snap.tiny_swap_density, snap.new_addr_tiny_swap_count,
-        snap.has_strong_pending_smart_buy, snap.has_strong_pending_smart_sell,
-        snap.has_strong_pending_whale_buy, snap.has_strong_pending_whale_sell,
-        snap.high_tiny_swap_density,
-        snap.pool_liquidity_usd,
-    )
 
-    # Update denormalized columns on launches
-    flags = {
-        "has_strong_pending_smart_buy": snap.has_strong_pending_smart_buy,
-        "has_strong_pending_smart_sell": snap.has_strong_pending_smart_sell,
-        "has_strong_pending_whale_buy": snap.has_strong_pending_whale_buy,
-        "has_strong_pending_whale_sell": snap.has_strong_pending_whale_sell,
-        "high_tiny_swap_density": snap.high_tiny_swap_density,
-    }
+    # Update denormalized columns on launches (per-snapshot)
+    for snap in valid:
+        flags = {
+            "has_strong_pending_smart_buy": snap.has_strong_pending_smart_buy,
+            "has_strong_pending_smart_sell": snap.has_strong_pending_smart_sell,
+            "has_strong_pending_whale_buy": snap.has_strong_pending_whale_buy,
+            "has_strong_pending_whale_sell": snap.has_strong_pending_whale_sell,
+            "high_tiny_swap_density": snap.high_tiny_swap_density,
+        }
 
-    await db.execute(
-        """
-        UPDATE launches SET
-            mempool_smart_buy_ratio   = $1,
-            mempool_smart_sell_ratio  = $2,
-            mempool_whale_buy_count   = $3,
-            mempool_whale_sell_count  = $4,
-            mempool_tiny_swap_density = $5,
-            mempool_flags             = $6::jsonb,
-            mempool_updated_at        = now()
-        WHERE launch_id = $7
-        """,
-        snap.pending_smart_buy_ratio,
-        snap.pending_smart_sell_ratio,
-        snap.pending_whale_buy_count,
-        snap.pending_whale_sell_count,
-        snap.tiny_swap_density,
-        json.dumps(flags),
-        snap.launch_id,
-    )
+        await db.execute(
+            """
+            UPDATE launches SET
+                mempool_smart_buy_ratio   = $1,
+                mempool_smart_sell_ratio  = $2,
+                mempool_whale_buy_count   = $3,
+                mempool_whale_sell_count  = $4,
+                mempool_tiny_swap_density = $5,
+                mempool_flags             = $6::jsonb,
+                mempool_updated_at        = now()
+            WHERE launch_id = $7
+            """,
+            snap.pending_smart_buy_ratio,
+            snap.pending_smart_sell_ratio,
+            snap.pending_whale_buy_count,
+            snap.pending_whale_sell_count,
+            snap.tiny_swap_density,
+            json.dumps(flags),
+            snap.launch_id,
+        )
+
+    return len(valid)
 
 
 async def get_latest_snapshot(launch_id: str) -> dict[str, Any] | None:
@@ -470,11 +479,11 @@ async def run_snapshot_cycle(aggregator: MempoolFeatureAggregator) -> dict:
             pool_liquidity_usd=float(launch.get("lp_usd") or 0),
         )
 
-    persisted = 0
+    to_persist: list[MempoolSnapshot] = []
     for launch in tracked:
         snap = aggregator.compute_snapshot(launch["token_address"])
         if snap and snap.total_pending_swap_count > 0:
-            await persist_snapshot(snap)
-            persisted += 1
+            to_persist.append(snap)
 
+    persisted = await persist_snapshots_batch(to_persist) if to_persist else 0
     return {"tracked": len(tracked), "snapshots_persisted": persisted}
