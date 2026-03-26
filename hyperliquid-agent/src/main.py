@@ -397,10 +397,11 @@ def main():
                     logger.warning("Rate limited — waiting 60s before next step")
                     time.sleep(60)
                 elif "does not match current function" in err or "status 400" in err:
-                    logger.warning("Stale session — resetting: %s", err[:120])
-                    # Clear the stale function_result so next step starts fresh
-                    if hasattr(agent, '_session') and agent._session:
-                        agent._session.function_result = None
+                    logger.warning("Stale session — recompiling agent: %s", err[:120])
+                    try:
+                        agent.compile()
+                    except Exception as ce:
+                        logger.warning("Recompile failed: %s — will retry", ce)
                     time.sleep(5)
                 else:
                     raise

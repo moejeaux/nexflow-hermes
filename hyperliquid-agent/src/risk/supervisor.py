@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 
-from src.config import RiskConfig
+from src.config import INITIAL_EQUITY, RiskConfig
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,11 @@ class RiskSupervisor:
         """Update live equity and position count."""
         today = datetime.now(timezone.utc).date()
 
+        # When INITIAL_EQUITY is active and HL reports $0, the apparent
+        # drawdown is an artifact — ignore $0 updates entirely.
+        if equity < 1.0 and INITIAL_EQUITY > 0:
+            equity = INITIAL_EQUITY
+
         # Reset daily stats on new day
         if self._state.daily.date != today:
             self._state.daily = DailyStats(date=today, starting_equity=equity)
@@ -91,6 +96,12 @@ class RiskSupervisor:
                     self.config.max_drawdown_hard_pct * 100,
                 )
                 self._halted = True
+        else:
+            # Clear halt if drawdown recovers (e.g. after INITIAL_EQUITY override)
+            if self._halted:
+                logger.info("Drawdown recovered to %.1f%% — resuming trading",
+                            self._state.drawdown_pct * 100)
+                self._halted = False
 
     def record_trade(self, realized_pnl: float) -> None:
         """Record a completed trade's PnL."""
