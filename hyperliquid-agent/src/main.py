@@ -18,9 +18,14 @@ from src.config import (
     GAME_AGENT_ID,
     GAME_API_KEY,
     HL_WALLET_ADDRESS,
+    INITIAL_EQUITY,
+    STEP_INTERVAL,
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_CHAT_ID,
     load_strategy_config,
     validate_required_env,
 )
+from src.notifications.telegram import TelegramBot, create_bot
 from src.market.data_feed import MarketDataFeed
 from src.market.freshness import FreshnessTracker
 from src.execution.executor import OrderExecutor
@@ -83,7 +88,11 @@ def _get_trading_state(_function_result=None, _current_state=None) -> dict:
         _ctx.acp.process_pending_callbacks()
 
         account = _ctx.feed.get_account_state()
-        _ctx.risk.update_equity(account.equity, account.num_positions)
+        equity = account.equity
+        # Use INITIAL_EQUITY when Degen Claw manages the subaccount
+        if equity < 1.0 and INITIAL_EQUITY > 0:
+            equity = INITIAL_EQUITY
+        _ctx.risk.update_equity(equity, account.num_positions)
 
         positions = []
         for p in account.positions:
@@ -98,7 +107,7 @@ def _get_trading_state(_function_result=None, _current_state=None) -> dict:
         can_trade, reason = _ctx.risk.can_trade()
 
         state = {
-            "equity": account.equity,
+            "equity": equity,
             "available_margin": account.available_margin,
             "num_positions": account.num_positions,
             "positions": positions,
@@ -148,9 +157,15 @@ def build_context() -> SkillContext:
         account = feed.get_account_state()
         initial_equity = account.equity
         risk_supervisor.update_equity(account.equity, account.num_positions)
-        logger.info("Initial equity: $%.2f", initial_equity)
+        logger.info("Initial equity from HL: $%.2f", initial_equity)
     except Exception as e:
         logger.warning("Could not fetch initial equity: %s", e)
+
+    # Use INITIAL_EQUITY as floor when Degen Claw manages the subaccount
+    if initial_equity < 1.0 and INITIAL_EQUITY > 0:
+        initial_equity = INITIAL_EQUITY
+        risk_supervisor.update_equity(initial_equity, 0)
+        logger.info("Using INITIAL_EQUITY override: $%.2f", initial_equity)
 
     portfolio = PortfolioTracker(starting_equity=max(initial_equity, 1.0))
     for fill in store.load_fills():
@@ -171,6 +186,88 @@ def build_context() -> SkillContext:
         smart_money=smart_money,
         portfolio=portfolio,
     )
+
+
+def _setup_telegram(ctx: SkillContext) -> TelegramBot | None:
+    """Create Telegram bot and register agent commands."""
+    bot = create_bot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+    if bot is None:
+        return None
+
+    from src.skill.functions import (
+        _get_account_info,
+        _get_market_overview,
+        _get_performance,
+        _get_acp_status,
+        _get_constraints,
+    )
+
+    def _cmd_status(_args: str) -> str:
+        status, msg, info = _get_account_info()
+        risk = ctx.risk.status()
+        lines = [
+            "*NXFH01 Status*",
+            f"Equity: ${info.get('equity', 0):.2f}",
+            f"Margin available: ${info.get('available_margin', 0):.2f}",
+            f"Positions: {info.get('num_positions', 0)}",
+            f"Halted: {risk.get('halted', False)}",
+            f"Drawdown: {risk.get('drawdown_pct', 0):.1%}",
+        ]
+        return "\n".join(lines)
+
+    def _cmd_positions(_args: str) -> str:
+        _, _, info = _get_account_info()
+        positions = info.get("positions", [])
+        if not positions:
+            return "No open positions."
+        lines = ["*Open Positions*"]
+        for p in positions:
+            lines.append(
+                f"  {p['side']} {p['coin']} "
+                f"size={p['size']} entry=${p['entry_price']:.2f} "
+                f"PnL=${p['unrealized_pnl']:.2f}"
+            )
+        return "\n".join(lines)
+
+    def _cmd_performance(_args: str) -> str:
+        _, _, info = _get_performance()
+        comp = info.get("competition", {})
+        lines = [
+            "*Performance*",
+            f"Sortino: {comp.get('sortino_ratio', 0):.2f}",
+            f"Return: {comp.get('return_pct', 0):.2%}",
+            f"Profit Factor: {comp.get('profit_factor', 0):.2f}",
+            f"Strategies: {', '.join(info.get('strategies_enabled', []))}",
+        ]
+        return "\n".join(lines)
+
+    def _cmd_acp(_args: str) -> str:
+        _, msg, _ = _get_acp_status()
+        return f"*ACP Status*\n{msg}"
+
+    def _cmd_constraints(_args: str) -> str:
+        _, msg, _ = _get_constraints()
+        return f"*Hard Constraints*\n{msg}"
+
+    bot.register("status", _cmd_status)
+    bot.register("positions", _cmd_positions)
+    bot.register("performance", _cmd_performance)
+    bot.register("acp", _cmd_acp)
+    bot.register("constraints", _cmd_constraints)
+
+    # Re-register help with the full command list
+    bot.register("help", lambda _: (
+        "*NXFH01 Commands*\n"
+        "/status — account equity, margin, halt state\n"
+        "/positions — open positions\n"
+        "/performance — Sortino, return%, profit factor\n"
+        "/acp — ACP connection status\n"
+        "/constraints — list hard constraints\n"
+        "/help — this message"
+    ))
+    bot.register("start", bot._handlers["help"])
+
+    return bot
 
 
 def _build_workers(ctx: SkillContext) -> list[WorkerConfig]:
@@ -201,6 +298,12 @@ def main():
 
     ctx = build_context()
     set_context(ctx)
+
+    # Start Telegram bot (if configured)
+    tg_bot = _setup_telegram(ctx)
+    if tg_bot:
+        tg_bot.start_polling()
+        tg_bot.notify("NXFH01 agent starting up...")
 
     enabled = [s.name for s in ctx.strategies if s.is_enabled(ctx.config)]
     logger.info(
@@ -270,7 +373,17 @@ def main():
         logger.info("GAME_AGENT_ID=%s written to .env", new_id)
 
     logger.info("Compiling NXFH01 agent...")
-    agent.compile()
+    for attempt in range(5):
+        try:
+            agent.compile()
+            break
+        except ValueError as e:
+            if "429" in str(e) and attempt < 4:
+                wait = 30 * (attempt + 1)
+                logger.warning("Rate limited on compile — waiting %ds (attempt %d/5)", wait, attempt + 1)
+                time.sleep(wait)
+            else:
+                raise
 
     logger.info("NXFH01 running (%s mode). Ctrl+C to stop.",
                 "LIVE" if ctx.acp.is_live else "DRY-RUN")
@@ -280,13 +393,16 @@ def main():
                 agent.step()
             except ValueError as e:
                 if "429" in str(e) or "Too Many Requests" in str(e):
-                    logger.warning("Rate limited — waiting 30s before next step")
-                    time.sleep(30)
+                    logger.warning("Rate limited — waiting 60s before next step")
+                    time.sleep(60)
                 else:
                     raise
-            time.sleep(5)
+            time.sleep(STEP_INTERVAL)
     except KeyboardInterrupt:
         logger.info("NXFH01 shutting down...")
+        if tg_bot:
+            tg_bot.notify("NXFH01 agent shutting down.")
+            tg_bot.stop()
 
 
 if __name__ == "__main__":
