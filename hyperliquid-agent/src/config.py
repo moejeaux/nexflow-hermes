@@ -40,7 +40,7 @@ def _env_bool(key: str, default: bool = False) -> bool:
 # ── secrets from env ─────────────────────────────────────────────────────────
 
 # ACP CLI directory (openclaw-acp installation)
-ACP_CLI_DIR: str = _env_str("ACP_CLI_DIR", os.path.expanduser("~/nexflow-virtuals/openclaw-acp"))
+ACP_CLI_DIR: str = os.path.expanduser(_env_str("ACP_CLI_DIR", "~/nexflow-virtuals/openclaw-acp"))
 
 # ACP credentials (kept for reference, no longer used by Python SDK)
 ACP_WALLET_PRIVATE_KEY: str = _env_str("ACP_WALLET_PRIVATE_KEY")
@@ -55,6 +55,12 @@ GAME_AGENT_ID: str = _env_str("GAME_AGENT_ID")
 HL_WALLET_ADDRESS: str = _env_str("HL_WALLET_ADDRESS")
 HL_API_URL: str = _env_str("HL_API_URL", "https://api.hyperliquid.xyz")
 HL_KILL_SWITCH: bool = _env_bool("HL_KILL_SWITCH", False)
+
+# Degen Claw managed equity (HL subaccount balance not queryable directly)
+INITIAL_EQUITY: float = _env_float("INITIAL_EQUITY", 0.0)
+
+# Agent step interval (seconds) — 30s keeps within GAME free tier (10 calls / 5 min)
+STEP_INTERVAL: int = _env_int("STEP_INTERVAL", 30)
 
 # Notifications
 TELEGRAM_BOT_TOKEN: str = _env_str("TELEGRAM_BOT_TOKEN")

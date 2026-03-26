@@ -65,10 +65,11 @@ class DegenClawAcp:
     """
 
     def __init__(self, cli_dir: str = "", **_kwargs: Any):
-        self._cli_dir = cli_dir or os.getenv(
+        raw_dir = cli_dir or os.getenv(
             "ACP_CLI_DIR",
-            os.path.expanduser("~/nexflow-virtuals/openclaw-acp"),
+            "~/nexflow-virtuals/openclaw-acp",
         )
+        self._cli_dir = os.path.expanduser(raw_dir)
         self._pending_jobs: dict[str, AcpTradeRequest] = {}
         self._completed_jobs: dict[str, AcpTradeResponse] = {}
         self._provider_address = DEGEN_CLAW_WALLET

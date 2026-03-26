@@ -12,7 +12,7 @@ import logging
 
 from game_sdk.game.custom_types import Argument, Function, FunctionResultStatus
 
-from src.config import StrategyConfig, load_strategy_config
+from src.config import INITIAL_EQUITY, StrategyConfig, load_strategy_config
 from src.acp.degen_claw import DegenClawAcp
 from src.market.data_feed import MarketDataFeed
 from src.market.freshness import FreshnessTracker
@@ -79,16 +79,24 @@ def _get_ctx() -> SkillContext:
 
 # ── skill function implementations ──────────────────────────────────────────
 
-def _get_account_info(_: str, **__) -> tuple[FunctionResultStatus, str, dict]:
+def _get_account_info(_: str = "", **__) -> tuple[FunctionResultStatus, str, dict]:
     """Get HL account balance, equity, margin, open positions."""
     ctx = _get_ctx()
     try:
         state = ctx.feed.get_account_state()
-        ctx.risk.update_equity(state.equity, state.num_positions)
+        equity = state.equity
+        available_margin = state.available_margin
+
+        # Degen Claw manages the subaccount — HL may report $0
+        if equity < 1.0 and INITIAL_EQUITY > 0:
+            equity = INITIAL_EQUITY
+            available_margin = max(available_margin, INITIAL_EQUITY)
+
+        ctx.risk.update_equity(equity, state.num_positions)
 
         info = {
-            "equity": state.equity,
-            "available_margin": state.available_margin,
+            "equity": equity,
+            "available_margin": available_margin,
             "total_margin_used": state.total_margin_used,
             "num_positions": state.num_positions,
             "positions": [
@@ -106,7 +114,7 @@ def _get_account_info(_: str, **__) -> tuple[FunctionResultStatus, str, dict]:
         return FunctionResultStatus.FAILED, str(e), {}
 
 
-def _get_market_overview(_: str, **__) -> tuple[FunctionResultStatus, str, dict]:
+def _get_market_overview(_: str = "", **__) -> tuple[FunctionResultStatus, str, dict]:
     """Get prices, funding rates, OI for allowed markets."""
     ctx = _get_ctx()
     try:
@@ -130,7 +138,7 @@ def _get_market_overview(_: str, **__) -> tuple[FunctionResultStatus, str, dict]
         return FunctionResultStatus.FAILED, str(e), {}
 
 
-def _check_regime(_: str, **__) -> tuple[FunctionResultStatus, str, dict]:
+def _check_regime(_: str = "", **__) -> tuple[FunctionResultStatus, str, dict]:
     """Get current BTC 4H macro regime."""
     ctx = _get_ctx()
     try:
@@ -144,14 +152,17 @@ def _check_regime(_: str, **__) -> tuple[FunctionResultStatus, str, dict]:
         return FunctionResultStatus.FAILED, str(e), {}
 
 
-def _scan_opportunities(_: str, **__) -> tuple[FunctionResultStatus, str, dict]:
+def _scan_opportunities(_: str = "", **__) -> tuple[FunctionResultStatus, str, dict]:
     """Run all enabled strategies and return ranked signals."""
     ctx = _get_ctx()
     try:
         mids = ctx.feed.refresh_prices()
         funding = ctx.feed.refresh_funding()
         account = ctx.feed.get_account_state()
-        ctx.risk.update_equity(account.equity, account.num_positions)
+        equity = account.equity
+        if equity < 1.0 and INITIAL_EQUITY > 0:
+            equity = INITIAL_EQUITY
+        ctx.risk.update_equity(equity, account.num_positions)
 
         candles = {}
         for coin in ctx.config.allowed_markets.perps:
@@ -189,7 +200,7 @@ def _scan_opportunities(_: str, **__) -> tuple[FunctionResultStatus, str, dict]:
         return FunctionResultStatus.FAILED, str(e), {}
 
 
-def _evaluate_trade(_: str, coin: str = "", **__) -> tuple[FunctionResultStatus, str, dict]:
+def _evaluate_trade(_: str = "", coin: str = "", **__) -> tuple[FunctionResultStatus, str, dict]:
     """Validate a proposed trade against all hard constraints."""
     ctx = _get_ctx()
     try:
@@ -224,7 +235,7 @@ def _evaluate_trade(_: str, coin: str = "", **__) -> tuple[FunctionResultStatus,
         return FunctionResultStatus.FAILED, str(e), {}
 
 
-def _execute_trade(_: str, coin: str = "", side: str = "", **__) -> tuple[FunctionResultStatus, str, dict]:
+def _execute_trade(_: str = "", coin: str = "", side: str = "", **__) -> tuple[FunctionResultStatus, str, dict]:
     """Execute a trade via ACP to Degen Claw."""
     ctx = _get_ctx()
     try:
@@ -255,7 +266,7 @@ def _execute_trade(_: str, coin: str = "", side: str = "", **__) -> tuple[Functi
         return FunctionResultStatus.FAILED, str(e), {}
 
 
-def _close_position(_: str, coin: str = "", **__) -> tuple[FunctionResultStatus, str, dict]:
+def _close_position(_: str = "", coin: str = "", **__) -> tuple[FunctionResultStatus, str, dict]:
     """Close a position via ACP."""
     ctx = _get_ctx()
     try:
@@ -266,7 +277,7 @@ def _close_position(_: str, coin: str = "", **__) -> tuple[FunctionResultStatus,
         return FunctionResultStatus.FAILED, str(e), {}
 
 
-def _get_performance(_: str, **__) -> tuple[FunctionResultStatus, str, dict]:
+def _get_performance(_: str = "", **__) -> tuple[FunctionResultStatus, str, dict]:
     """Get trading performance and competition metrics."""
     ctx = _get_ctx()
     try:
@@ -285,7 +296,7 @@ def _get_performance(_: str, **__) -> tuple[FunctionResultStatus, str, dict]:
         return FunctionResultStatus.FAILED, str(e), {}
 
 
-def _get_constraints(_: str, **__) -> tuple[FunctionResultStatus, str, dict]:
+def _get_constraints(_: str = "", **__) -> tuple[FunctionResultStatus, str, dict]:
     """List all hard constraints."""
     constraints = {
         "kill_switch": "HL_KILL_SWITCH env var — instant halt",
@@ -303,7 +314,7 @@ def _get_constraints(_: str, **__) -> tuple[FunctionResultStatus, str, dict]:
     return FunctionResultStatus.DONE, json.dumps(constraints, indent=2), constraints
 
 
-def _get_acp_status(_: str, **__) -> tuple[FunctionResultStatus, str, dict]:
+def _get_acp_status(_: str = "", **__) -> tuple[FunctionResultStatus, str, dict]:
     """Get ACP connection status, pending/completed jobs."""
     ctx = _get_ctx()
     try:
