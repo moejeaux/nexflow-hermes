@@ -1,0 +1,43 @@
+# === Allowed Markets ===
+allowed_markets:
+  perps: [BTC, ETH, SOL, DOGE, ARB, OP, AVAX, MATIC]
+  rwa: [OIL, GOLD, SPX]
+
+# === Strategy Toggles ===
+strategies:
+  funding_carry:
+    enabled: true
+    min_funding_rate_hourly: 0.0011   # 0.11%/hr threshold
+    delta_neutral: true
+    prefer_maker: true
+    exit_after_funding_window: true
+  momentum:
+    enabled: true
+    btc_regime_gate: true             # hard gate on BTC 4H trend
+    entry_on_pullback: true
+    allow_breakout_entry: false
+    min_rr_ratio: 3.0                 # 3R minimum
+  smart_money:
+    enabled: true
+    confirmation_only: true           # never sole reason to trade
+    max_freshness_minutes: 15
+  rwa:
+    enabled: false                    # off by default
+    macro_window_required: true
+    max_holding_hours: 8
+    risk_cap_multiplier: 0.5          # half normal risk
+
+# === Risk Limits ===
+risk:
+  max_leverage_per_asset: 5.0
+  risk_per_trade_pct: 0.02            # 2% equity per trade
+  max_daily_loss_pct: 0.05            # 5% daily stop
+  max_drawdown_soft_pct: 0.08
+  max_drawdown_hard_pct: 0.15         # kill switch
+  max_concurrent_positions: 3
+
+# === BTC Regime ===
+btc_regime:
+  timeframe: "4h"
+  trend_ema_fast: 20
+  trend_ema_slow: 50
