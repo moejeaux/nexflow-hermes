@@ -392,9 +392,16 @@ def main():
             try:
                 agent.step()
             except ValueError as e:
-                if "429" in str(e) or "Too Many Requests" in str(e):
+                err = str(e)
+                if "429" in err or "Too Many Requests" in err:
                     logger.warning("Rate limited — waiting 60s before next step")
                     time.sleep(60)
+                elif "does not match current function" in err or "status 400" in err:
+                    logger.warning("Stale session — resetting: %s", err[:120])
+                    # Clear the stale function_result so next step starts fresh
+                    if hasattr(agent, '_session') and agent._session:
+                        agent._session.function_result = None
+                    time.sleep(5)
                 else:
                     raise
             time.sleep(STEP_INTERVAL)
