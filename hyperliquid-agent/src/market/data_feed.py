@@ -105,7 +105,15 @@ class MarketDataFeed:
 
     def refresh_candles(self, coin: str, interval: str = "4h", limit: int = 100) -> list[Candle]:
         """Fetch OHLCV candles."""
-        raw = self.info.candles_snapshot(coin, interval, limit)
+        # candles_snapshot expects (coin, interval, startTime, endTime) in ms
+        interval_ms = {
+            "1m": 60_000, "5m": 300_000, "15m": 900_000,
+            "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000,
+        }
+        period = interval_ms.get(interval, 14_400_000)
+        end_time = int(datetime.now(timezone.utc).timestamp() * 1000)
+        start_time = end_time - (period * limit)
+        raw = self.info.candles_snapshot(coin, interval, start_time, end_time)
         candles = []
         for c in raw:
             candles.append(Candle(
@@ -135,10 +143,11 @@ class MarketDataFeed:
         try:
             ctx_data = self.info.meta_and_asset_ctxs()
             if ctx_data and len(ctx_data) > 1:
-                for asset_ctx in ctx_data[1]:
+                universe = ctx_data[0].get("universe", [])
+                for i, asset_ctx in enumerate(ctx_data[1]):
                     if not isinstance(asset_ctx, dict):
                         continue
-                    coin = asset_ctx.get("coin", "")
+                    coin = universe[i]["name"] if i < len(universe) else ""
                     funding = float(asset_ctx.get("funding", 0))
                     rates.append(FundingRate(
                         coin=coin,
